@@ -1,0 +1,9 @@
+httpx>=0.28.1
+mcp>=1.19.0
+openai>=2.6.1
+python-dotenv>=1.1.1
+requests>=2.32.5
+pymilvus
+langchain-community
+chromadb
+dashscope
