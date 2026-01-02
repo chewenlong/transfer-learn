@@ -3,12 +3,15 @@ import os
 import requests
 import json
 
-from server import fetch_weather, query_weather
+from langchain_core.tools import tool
+
+
 
 # 和风天气开发服务 https://dev.qweather.com/
 API_KEY = os.getenv("HE_FENG_KEY")  # 替换成你自己的和风天气API密钥
 BASE_URL = "https://kd6e4e56cv.re.qweatherapi.com/v7/weather/now?location={}"
 
+@tool
 def get_weather(city: str) -> str:
     """
     查询即时天气函数
@@ -37,9 +40,8 @@ def get_weather(city: str) -> str:
 
 # 使用示例
 if __name__ == "__main__":
-    print(query_weather("101010100"))
-    # try:
-    #     result = get_weather("101010100")
-    #     print(result)
-    # except Exception as e:
-    #     print(f"获取天气信息失败: {e}")
+    try:
+        result = get_weather("101010100")
+        print(result)
+    except Exception as e:
+        print(f"获取天气信息失败: {e}")

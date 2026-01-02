@@ -7,3 +7,9 @@ pymilvus
 langchain-community
 chromadb
 dashscope
+langchain_openai
+langchain_deepseek
+beautifulsoup4
+langchain_chroma
+langgraph
+langgraph-checkpoint-sqlite

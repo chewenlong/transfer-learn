@@ -9,7 +9,7 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("WeatherServer")
 
 # 和风天气 API 配置
-API_KEY = "83ba4ee61a7d4aa0b738e8fa132e6b19"  # 替换为你自己的和风天气API密钥
+API_KEY = os.getenv("HE_FENG_KEY")  # 替换为你自己的和风天气API密钥
 BASE_URL = "https://kd6e4e56cv.re.qweatherapi.com/v7/weather/now?location={}"
 USER_AGENT = "weather-app/2.0"
 

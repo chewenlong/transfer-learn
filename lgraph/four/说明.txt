@@ -1,0 +1,321 @@
+
+multi_cooperate_network_agent_arch是智能体协同的
+真正的执行顺序（逐步、逐行、按时间）
+
+下面我按你这次运行的真实日志顺序来解释。
+
+Step 0️⃣ 入口（Entry Point）
+work_flow.set_entry_point("db_manager")
+
+
+第一个执行的一定是：
+
+db_manager
+
+
+并且它拿到的 state 是：
+
+{
+  "messages": [
+      HumanMessage("根据sales_id使用折线图显示前5名销售的销售总额")
+  ]
+}
+
+Step 1️⃣ db_manager 第一次执行
+执行的是：
+db_node = agent_node(agent=db_agent, name="db_manager")
+
+
+db_manager 的 LLM 看到了：
+
+system prompt（只能提供数据）
+
+HumanMessage（用户需求）
+
+LLM 的决策：
+
+“我要先查数据”
+
+于是它返回的是：
+
+AIMessage(
+  tool_calls=[{
+      name: "query_sales",
+      args: {"count": 5}
+  }]
+)
+
+
+⚠️ 注意：
+此时 query_sales 还没执行
+
+Step 2️⃣ router 判断走向
+def router(state):
+    last_message = state["messages"][-1]
+    if last_message.tool_calls:
+        return "call_tool"
+
+
+✔ 因为 存在 tool_calls
+
+所以走向：
+
+db_manager → call_tool
+
+Step 3️⃣ call_tool 执行 query_sales
+tool_executor = ToolNode(tools)
+
+
+LangGraph 自动做三件事：
+
+找到 query_sales
+
+执行：
+
+query_sales(count=5)
+
+
+把结果包装成：
+
+ToolMessage(
+  name="query_sales",
+  content='[...]'
+)
+
+
+并且 state 变成：
+
+messages = [
+  HumanMessage,
+  AIMessage(tool_calls=query_sales),
+  ToolMessage(query_sales结果)
+]
+
+
+⚠️ 注意一个非常重要的点：
+
+ToolMessage 只是“执行结果”，
+还没有任何 Agent 解读它
+
+Step 4️⃣ call_tool → 回到谁？
+work_flow.add_conditional_edges(
+    "call_tool",
+    lambda x: x["sender"],
+    {
+        "db_manager": "db_manager",
+        "code_generator": "code_generator"
+    }
+)
+
+
+这里的 sender 是谁？
+
+sender = "db_manager"
+
+
+因为：
+
+query_sales 是 db_manager 发起的
+
+👉 所以：
+
+call_tool → db_manager
+
+Step 5️⃣ db_manager 第二次执行（关键）
+
+这次 db_manager 收到的 messages 是：
+
+HumanMessage
+AIMessage(tool_calls=query_sales)
+ToolMessage(query_sales 返回的数据)
+
+
+现在它终于“看到了真实数据”。
+
+正确情况下，它应该做的是：
+
+“数据准备好了，交给 code_generator 画图”
+
+于是它返回一个 不带 tool_calls 的 AIMessage
+AIMessage(
+  content="数据已查询完成，请进行可视化"
+)
+
+Step 6️⃣ router 再次判断
+if last_message.tool_calls:
+    return "call_tool"
+if "FINAL ANSWER" in last_message.content:
+    return END
+return "continue"
+
+
+这次：
+
+❌ 没有 tool_calls
+
+❌ 没有 FINAL ANSWER
+
+所以：
+
+return "continue"
+
+
+而在 db_manager 的 conditional_edges 中：
+
+{"continue": "code_generator"}
+
+
+👉 跳转到：
+
+code_generator
+
+Step 7️⃣ code_generator 第一次执行
+
+code_generator LLM 看到的 messages 是：
+
+Human
+db_manager(tool_calls)
+ToolMessage(query_sales 数据)
+db_manager(说明数据已就绪)
+
+
+它的 system prompt 是：
+
+Run python code to display diagrams or output execution results.
+
+它的判断：
+
+“我该画折线图了”
+
+于是它返回：
+
+AIMessage(
+  tool_calls=[{
+      name: "python_repl",
+      args: { code: "import matplotlib..." }
+  }]
+)
+
+Step 8️⃣ router → call_tool（第二次）
+
+同样的逻辑：
+
+code_generator → call_tool
+
+Step 9️⃣ call_tool 执行 python_repl
+
+LangGraph：
+
+找到 python_repl
+
+执行代码
+
+返回：
+
+ToolMessage(
+  name="python_repl",
+  content="Successfully executed / Error"
+)
+
+
+并更新 state.messages
+
+Step 🔟 call_tool → 回到 code_generator
+
+因为：
+
+sender = "code_generator"
+
+
+所以：
+
+call_tool → code_generator
+
+Step 11️⃣ code_generator 最后一次执行
+
+现在 code_generator 看到了：
+
+画图是否成功
+
+python_repl 的 stdout / error
+
+如果成功：
+AIMessage(
+  content="FINAL ANSWER: 折线图已生成"
+)
+
+Step 12️⃣ router 识别 FINAL ANSWER → END
+if "FINAL ANSWER" in last_message.content:
+    return END
+
+
+🎉 整个流程结束
+
+图
+┌──────────┐
+│  Human   │
+└────┬─────┘
+     │  "根据sales_id使用折线图显示前5名销售的销售总额"
+     ▼
+┌──────────────┐
+│ db_manager   │  ← Entry Point
+└────┬─────────┘
+     │  决定调用 query_sales
+     │  (tool_calls)
+     ▼
+┌──────────────┐
+│  call_tool   │
+└────┬─────────┘
+     │  执行 query_sales(count=5)
+     ▼
+┌──────────────┐
+│ query_sales  │
+└────┬─────────┘
+     │  返回 ToolMessage(JSON数据)
+     ▼
+┌──────────────┐
+│  call_tool   │
+└────┬─────────┘
+     │  sender = db_manager
+     ▼
+┌──────────────┐
+│ db_manager   │  ← 第二次执行
+└────┬─────────┘
+     │  读取 ToolMessage
+     │  “数据已准备好”
+     │  （无 tool_calls）
+     ▼
+┌──────────────┐
+│ router       │
+└────┬─────────┘
+     │  continue
+     ▼
+┌──────────────┐
+│ code_generator│
+└────┬─────────┘
+     │  决定画折线图
+     │  (tool_calls: python_repl)
+     ▼
+┌──────────────┐
+│  call_tool   │
+└────┬─────────┘
+     │  执行 python_repl(matplotlib)
+     ▼
+┌──────────────┐
+│ python_repl  │
+└────┬─────────┘
+     │  返回 ToolMessage(执行结果)
+     ▼
+┌──────────────┐
+│  call_tool   │
+└────┬─────────┘
+     │  sender = code_generator
+     ▼
+┌──────────────┐
+│ code_generator│  ← 第二次执行
+└────┬─────────┘
+     │  FINAL ANSWER
+     ▼
+┌──────────────┐
+│     END      │
+└──────────────┘
